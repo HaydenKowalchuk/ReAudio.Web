@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563eb'/%3E%3Cpath d='M7 16h2m4-6v12m4-9v6m4-8v10m4-7v4' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>ReAudio</title>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#fff; --ink:#15181d; --mute:#6a727d; --line:#e2e5ea;
+  --accent:#2563eb; --accent-ink:#fff; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --chip:#eef1f5;
+  --shadow:0 1px 2px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#0f1216; --card:#181c22; --ink:#e8ebf0; --mute:#9aa3af; --line:#2a303a;
+    --accent:#5b8def; --accent-ink:#0b1020; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --chip:#232932; --shadow:none; }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding:0 max(16px,env(safe-area-inset-right)) calc(120px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.wrap{max-width:1120px;margin:0 auto}
+/* mobile-first: one column. The sidebar wrapper dissolves so its parts can be ordered around the list. */
+.layout{display:grid;gap:0 28px;grid-template-columns:minmax(0,1fr);grid-template-areas:"side" "main" "extras"}
+.sidebar{display:contents}
+.side{grid-area:side} .extras{grid-area:extras} .main{grid-area:main;min-width:0}
+header{position:sticky;top:0;z-index:5;background:var(--bg);display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:calc(10px + env(safe-area-inset-top)) 0 10px}
+h1{font-size:20px;margin:0;letter-spacing:.2px}
+h2{font-size:13px;margin:22px 0 8px;color:var(--mute);text-transform:uppercase;letter-spacing:.08em}
+.pill{margin-left:auto;font-size:13px;padding:4px 10px;border-radius:999px;background:var(--chip);color:var(--mute);white-space:nowrap}
+.pill.on{color:var(--ok)} .pill.on::before{content:"● "}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:var(--shadow);margin:10px 0}
+.card p{margin:.2em 0 .8em;color:var(--mute);font-size:14px}
+button{font:inherit;color:inherit;border:1px solid var(--line);background:var(--card);border-radius:10px;min-height:44px;padding:8px 14px;cursor:pointer;touch-action:manipulation}
+button:active{transform:translateY(1px)}
+button:focus-visible,input:focus-visible,audio:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+button.big{width:100%;min-height:52px;font-size:17px}
+button.link{border:0;background:none;color:var(--accent);min-height:36px;padding:4px 0;text-decoration:underline}
+button:disabled{opacity:.5;cursor:default}
+body.busy .rec button:not(.keep),body.busy .tools button:not(.keep){opacity:.5;pointer-events:none}
+.banner{border:1px solid color-mix(in srgb,var(--warn) 50%,var(--line));background:color-mix(in srgb,var(--warn) 10%,var(--card));
+  border-radius:12px;padding:12px 14px;margin:10px 0;font-size:14px}
+.banner.bad{border-color:color-mix(in srgb,var(--bad) 50%,var(--line));background:color-mix(in srgb,var(--bad) 8%,var(--card))}
+.info{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px;color:var(--mute);margin-bottom:10px}
+.info b{color:var(--ink);font-weight:600}
+.tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.recording{display:flex;align-items:center;gap:8px;color:var(--bad);font-weight:600;margin-bottom:10px}
+.recording::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--bad);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.25}}
+/* ---- recording card: ONE design at every screen width ----
+   top bar: date + time (left), action buttons (right) | main row: play button, file name, length | bottom bar: status.
+   The card clips both bars to its rounded corners, so they follow the curve. */
+.rec{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:8px 0;box-shadow:var(--shadow);overflow:hidden}
+.rec-main{display:grid;grid-template-columns:48px minmax(0,1fr);grid-template-areas:"btns btns" "play meta";gap:0 12px;align-items:start;padding:0 12px 12px}
+.btns{grid-area:btns;display:flex;align-items:center;gap:6px;margin:0 -12px 12px;padding:6px 10px;
+  background:color-mix(in srgb,var(--chip) 55%,var(--card));border-bottom:1px solid var(--line)}
+.barinfo{margin-right:auto;min-width:0}
+.tm{display:inline-block;font-variant-numeric:tabular-nums;font-weight:600;font-size:13px;color:var(--ink);background:var(--card);
+  border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}
+/* compact buttons; an invisible ::after keeps each touch target ~40px */
+.btns button{position:relative;width:28px;min-height:28px;height:28px;padding:0;font-size:14px;line-height:1;border-radius:8px;
+  background:var(--card);border:1px solid var(--line)}
+.btns button::after{content:"";position:absolute;inset:-7px -3px}
+.play{grid-area:play;width:48px;height:48px;border-radius:50%;padding:0;font-size:18px;background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.rec.now .play{outline:3px solid color-mix(in srgb,var(--accent) 35%,transparent)}
+.meta{grid-area:meta;min-width:0}
+/* The date and file name are never truncated or wrapped. Only a user-chosen title may wrap (it is free text). */
+.title{font-weight:600}
+.title.file{white-space:nowrap}
+.title.alias{overflow-wrap:anywhere}
+.sub{font-size:13px;color:var(--mute);display:flex;flex-wrap:wrap;gap:2px 8px;align-items:center}
+.sub>span{white-space:nowrap}
+.statusbar{padding:7px 12px;border-top:1px solid var(--line);font-size:12.5px;line-height:1.35;color:var(--mute);
+  background:color-mix(in srgb,var(--chip) 55%,var(--card))}
+.statusbar.ok{color:var(--ok)} .statusbar.warn{color:var(--warn)}
+.grp{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.fmts button:disabled{display:none}
+.listhead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.listhead button{min-height:38px;padding:4px 12px;font-size:14px}
+.fmts{display:grid;gap:8px;margin-bottom:12px}
+.fmts button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:2px;padding:10px 14px}
+.fmts button span{font-size:13px;color:var(--mute)}
+.zip{display:flex;gap:8px;align-items:center;margin:0 0 14px;font-size:14px}
+.zip input{width:20px;height:20px}
+.actions{display:none;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;padding:12px;border-top:1px solid var(--line)}
+.rec.open .actions{display:grid}
+.empty{color:var(--mute);text-align:center;padding:26px 8px}
+#status{margin:6px 0 0;font-size:13px;color:var(--mute);min-height:18px}
+#prog{height:4px;background:var(--chip);border-radius:4px;overflow:hidden;margin-top:6px;opacity:0;transition:opacity .2s}
+#prog.on{opacity:1} #prog i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
+.player{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--card);border-top:1px solid var(--line);
+  padding:10px max(16px,env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.player .in{max-width:1120px;margin:0 auto}
+.player #ptitle{font-size:14px;font-weight:600;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+audio{width:100%;height:44px}
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);padding:18px;width:min(92vw,420px)}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog h3{margin:0 0 8px;font-size:18px} dialog p{margin:.3em 0 1em;color:var(--mute);font-size:14px}
+dialog input[type=text]{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin-bottom:14px}
+dialog .row{display:flex;gap:8px;justify-content:flex-end}
+#toast{position:fixed;left:50%;bottom:calc(110px + env(safe-area-inset-bottom));transform:translate(-50%,20px);max-width:min(92vw,520px);
+  background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:20}
+#toast.on{opacity:1;transform:translate(-50%,0)} #toast.err{background:var(--bad);color:#fff}
+details{margin-top:22px;color:var(--mute);font-size:13px}
+pre{white-space:pre-wrap;word-break:break-all;max-height:240px;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font:12px/1.4 ui-monospace,Consolas,monospace}
+.imp{display:inline-block;margin-top:6px}
+.imp input{display:none}
+.imp span{display:inline-block;border:1px dashed var(--line);border-radius:10px;padding:10px 14px;color:var(--mute);cursor:pointer;min-height:44px}
+[hidden]{display:none!important}
+
+/* ---- desktop / wide: only the page layout changes (sidebar + list); recording cards stay exactly the same ---- */
+@media (min-width:880px){
+  .layout{grid-template-columns:340px minmax(0,1fr);grid-template-areas:"sidebar main";align-items:start}
+  .sidebar{display:block;grid-area:sidebar;position:sticky;top:64px;max-height:calc(100vh - 150px);overflow:auto;padding-right:2px}
+  .side,.extras{grid-area:auto}
+  .main{grid-area:main}
+  .main h2{margin-top:10px}
+  .tools{grid-template-columns:1fr 1fr}
+  .rec{transition:border-color .15s}
+  .rec:hover{border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+  button.big{min-height:48px}
+  #toast{bottom:calc(120px + env(safe-area-inset-bottom))}
+}
+@media (min-width:1200px){ .layout{grid-template-columns:380px minmax(0,1fr)} }
+@media (hover:hover){ button:not(:disabled):not(.primary):hover{border-color:color-mix(in srgb,var(--accent) 55%,var(--line))} button.primary:hover{filter:brightness(1.08)} }
+@media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>ReAudio</h1>
+    <span class="pill" id="pill">Not connected</span>
+  </header>
+
+  <div id="support" class="banner bad" hidden></div>
+
+  <div class="layout">
+    <div class="sidebar">
+      <div class="side">
+        <section class="card" id="connectCard">
+          <p>Turn the recorder on and put it in pairing mode, keep it close, then connect. No account or pairing code needed.</p>
+          <button class="primary big keep" id="btnConnect">Connect to recorder</button>
+          <button class="link keep" id="btnAll">Recorder not listed? Show all Bluetooth devices</button>
+        </section>
+
+        <section class="card" id="deviceCard" hidden>
+          <div class="info" id="info"></div>
+          <div class="recording" id="recBanner" hidden>Recording <span id="recTime">0:00</span></div>
+          <div class="tools">
+            <button id="btnRefresh">Refresh</button>
+            <button id="btnStart">● Record</button>
+            <button id="btnStop">■ Stop</button>
+            <button id="btnPause">⏯ Pause</button>
+            <button id="btnClock">Set clock</button>
+            <button class="keep" id="btnDisconnect">Disconnect</button>
+          </div>
+        </section>
+
+        <div id="status" aria-live="polite"></div>
+        <div id="prog"><i></i></div>
+      </div>
+
+      <div class="extras">
+        <label class="imp"><input type="file" id="imp" accept=".raw,.opus,.ogg" multiple><span>Import saved .raw / .opus files…</span></label>
+        <details id="logbox"><summary>Log</summary><pre id="log"></pre></details>
+      </div>
+    </div>
+
+    <main class="main">
+      <div class="listhead"><h2>Recordings</h2><span class="grp"><button id="btnAllDl" class="keep" hidden>⬇ Download all…</button><button id="btnAllShare" class="keep" hidden>⤴ Share all…</button></span></div>
+      <div id="list"></div>
+    </main>
+  </div>
+</div>
+
+<div class="player" id="player" hidden>
+  <div class="in"><div id="ptitle"></div><audio id="audio" controls preload="auto"></audio></div>
+</div>
+
+<dialog id="dlgDelete">
+  <h3>Delete from recorder?</h3>
+  <p id="delText"></p>
+  <div class="row"><button class="keep" id="delNo">Cancel</button><button class="danger keep" id="delYes">Delete</button></div>
+</dialog>
+<dialog id="dlgDl">
+  <h3 id="dlTitle">Download</h3>
+  <p id="dlText"></p>
+  <div class="fmts">
+    <button class="keep" data-fmt="wav"><b>WAV</b><span>Plays anywhere. Largest file (16 kHz mono).</span></button>
+    <button class="keep" data-fmt="opus"><b>Opus</b><span>Small and lossless: the recorder's own audio in an .opus file.</span></button>
+    <button class="keep" data-fmt="raw"><b>Raw</b><span>The recorder's original stream (.raw), for the CLI/TUI tools.</span></button>
+  </div>
+  <label id="zipRow" class="zip" hidden><input type="checkbox" id="dlZip" checked> Bundle everything into one .zip</label>
+  <div class="row"><button class="keep" id="dlCancel">Cancel</button></div>
+</dialog>
+<dialog id="dlgShare">
+  <h3>Ready to share</h3>
+  <p id="shText"></p>
+  <div class="row"><button class="keep" id="shNo">Cancel</button><button class="primary keep" id="shYes">⤴ Share</button></div>
+</dialog>
+<dialog id="dlgRename">
+  <h3>Rename</h3>
+  <p>The recorder can't store names, so this title is saved in this browser only.</p>
+  <input type="text" id="renameInput" maxlength="60" autocomplete="off" placeholder="Title">
+  <div class="row"><button class="keep" id="renNo">Cancel</button><button class="primary keep" id="renYes">Save</button></div>
+</dialog>
+<div id="toast" role="status"></div>
+
+<script>
+'use strict';
+/* ============================================================================================
+   ReAudio - Web Bluetooth client for the L813 recorder (protocol notes: COMMANDS.md / PROTOCOL.md)
+   Frame:  request  55 AA LEN KEY payload      response  AA 55 LEN KEY payload
+   Audio:  stream of 82-byte frames  5B 50 + 80-byte Opus packet (SILK wideband, 20 ms, 16 kHz mono)
+   ============================================================================================ */
+
+// ---------- helpers ----------
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const toAscii = s => Uint8Array.from(s, c => c.charCodeAt(0) & 255);
+const asciiOf = b => { let s = ''; for (const x of b) s += String.fromCharCode(x); return s; };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const copyView = v => new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+const fmtDur = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return h ? `${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}` : `${m}:${String(x).padStart(2,'0')}`; };
+function log(...a){ const t = new Date().toLocaleTimeString(); $('#log').textContent += `${t}  ${a.join(' ')}\n`; $('#log').scrollTop = 1e9; }
+
+// ---------- protocol ----------
+const U = {
+  adv: '12345678-1234-5678-1234-56789abcdef0',          // advertised by the recorder (used to filter the chooser)
+  svc: '0011200a-2233-4455-6677-889912345678',
+  wr:  '0011202a-2233-4455-6677-889912345678',          // write without response: all commands
+  rsp: '0011203a-2233-4455-6677-889912345678',          // notify: command responses
+  file:'0011204a-2233-4455-6677-889912345678',          // notify: raw audio while downloading
+  live:'0011201a-2233-4455-6677-889912345678',          // notify: raw audio while recording (ignored)
+};
+const K = { mac:1, time:2, start:3, stop:4, files:5, filesEnd:6, sync:7, endsync:8, syncEnd:9, del:10, storage:11,
+  free:12, total:13, bat:14, rec:15, pause:16, ver:18, delFail:252, syncFail:253, filesFail:254 };
+const SIZE_TOLERANCE = 1024;      // device-listed size vs decoded WAV differ by 0..512 bytes (device padding)
+const FRAME = 82, PKT = 80, SAMPLES = 320;
+
+function frame(key, payload = [], len) {
+  const f = new Uint8Array(4 + payload.length);
+  f[0] = 0x55; f[1] = 0xAA; f[2] = len ?? payload.length + 1; f[3] = key; f.set(payload, 4);
+  return f;
+}
+const i32be = n => Uint8Array.of(n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255);
+function parseFileEntry(p) {      // name = all but the last 4 bytes; size = big-endian int32 (WAV scale)
+  const dv = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  return { name: asciiOf(p.subarray(0, p.length - 4)), size: dv.getInt32(p.length - 4) };
+}
+function startedOf(name) {        // "01_yyyyMMddHHmmss"
+  const m = /(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(name);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null;
+}
+
+class Recorder {
+  constructor(device) { this.device = device; this.q = []; this._wake = null; this.sync = null; this.connected = false; this.onDisconnect = null; }
+
+  async connect() {
+    const dev = this.device;
+    dev.addEventListener('gattserverdisconnected', () => { this.connected = false; log('disconnected'); this.onDisconnect?.(); });
+    let last;
+    for (let i = 0; i < 4; i++) {                     // the recorder sometimes needs a moment after a previous session
+      try {
+        const server = await dev.gatt.connect();
+        const svc = await server.getPrimaryService(U.svc);
+        this.wr = await svc.getCharacteristic(U.wr);
+        const rsp = await svc.getCharacteristic(U.rsp), file = await svc.getCharacteristic(U.file), live = await svc.getCharacteristic(U.live);
+        rsp.addEventListener('characteristicvaluechanged', e => this._onRsp(copyView(e.target.value)));
+        file.addEventListener('characteristicvaluechanged', e => this._onFile(copyView(e.target.value)));
+        await rsp.startNotifications(); await file.startNotifications(); await live.startNotifications();
+        this.connected = true; log('connected', dev.name || dev.id); return;
+      } catch (e) { last = e; log('connect attempt', i + 1, 'failed:', e.message); try { dev.gatt.disconnect(); } catch {} await sleep(1200); }
+    }
+    throw last;
+  }
+  disconnect() { try { this.device.gatt.disconnect(); } catch {} this.connected = false; }
+
+  _onRsp(b) {
+    if (b.length >= 4 && b[0] === 0xAA && b[1] === 0x55) { this.q.push({ key: b[3], payload: b.subarray(4) }); this._wake?.(); }
+  }
+  _onFile(b) { const s = this.sync; if (s) { s.chunks.push(b); s.got += b.length; s.t = performance.now(); } }
+
+  async send(f) {
+    const w = (v) => this.wr.writeValueWithoutResponse ? this.wr.writeValueWithoutResponse(v) : this.wr.writeValue(v);
+    try { await w(f); }
+    catch (e) {                                        // low ATT MTU: split into 20-byte writes
+      if (f.length <= 20) throw e;
+      log('write failed (', e.message, ') retrying in 20-byte chunks');
+      for (let i = 0; i < f.length; i += 20) await w(f.slice(i, i + 20));
+    }
+  }
+  drain() { this.q.length = 0; }
+  async expect(keys, ms = 5000) {
+    const end = performance.now() + ms;
+    for (;;) {
+      while (this.q.length) { const r = this.q.shift(); if (keys.includes(r.key)) return r; }
+      const left = end - performance.now();
+      if (left <= 0) throw new Error('The recorder did not answer in time.');
+      await new Promise(res => { this._wake = res; setTimeout(res, left); });
+    }
+  }
+  async ask(f, key, ms) { this.drain(); await this.send(f); return this.expect([key], ms); }
+
+  async info() {
+    const mac = await this.ask(frame(K.mac), K.mac), ver = await this.ask(frame(K.ver), K.ver), bat = await this.ask(frame(K.bat), K.bat);
+    return { serial: asciiOf(mac.payload), fw: asciiOf(ver.payload), battery: bat.payload[0] };
+  }
+  async listFiles() {
+    this.drain(); await this.send(frame(K.files));
+    const out = [];
+    for (;;) {
+      const r = await this.expect([K.files, K.filesEnd, K.filesFail], 10000);
+      if (r.key === K.filesFail) throw new Error('The recorder reported a file-list failure.');
+      if (r.key === K.filesEnd) return out;
+      out.push(parseFileEntry(r.payload));
+    }
+  }
+  async download(name, onProgress) {
+    this.drain();
+    this.sync = { chunks: [], got: 0, t: performance.now() };
+    const payload = new Uint8Array([...toAscii(name), ...i32be(0)]);
+    await this.send(frame(K.sync, payload, 0x13));     // firmware expects LEN=0x13 here
+    const ack = await this.expect([K.sync, K.syncFail], 10000);
+    if (ack.key === K.syncFail) { this.sync = null; throw new Error('The recorder refused to send the file.'); }
+    const expected = parseFileEntry(ack.payload).size;  // in the ack this is the real stream length
+    let ended = false;
+    try {
+      while (!ended) {
+        while (this.q.length) {
+          const r = this.q.shift();
+          if (r.key === K.syncFail) throw new Error('The recorder reported a transfer failure.');
+          if (r.key === K.syncEnd) ended = true;
+        }
+        onProgress?.(this.sync.got, expected);
+        if (ended) break;
+        if (performance.now() - this.sync.t > 20000) throw new Error('Transfer stalled (no data for 20 s).');
+        await new Promise(res => { this._wake = res; setTimeout(res, 100); });
+      }
+      for (let i = 0; i < 30 && this.sync.got < expected; i++) await sleep(100);   // late data after the end marker
+      const total = this.sync.got;
+      if (total !== expected) throw new Error(`Incomplete transfer: ${total} of ${expected} bytes.`);
+      const out = new Uint8Array(total); let p = 0;
+      for (const c of this.sync.chunks) { out.set(c, p); p += c.length; }
+      onProgress?.(total, expected);
+      return out;
+    } finally { this.sync = null; }
+  }
+  async remove(name) { this.drain(); await this.send(frame(K.del, toAscii(name), 0x0F)); await sleep(800); }
+  async startRec() { this.drain(); await this.send(frame(K.start)); }
+  async pauseRec() { this.drain(); await this.send(frame(K.pause)); }
+  async stopRec() { this.drain(); await this.send(frame(K.stop)); return parseFileEntry((await this.expect([K.stop], 8000)).payload); }
+  async setClock() {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    this.drain(); await this.send(frame(K.time, toAscii(`${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`)));
+  }
+}
+
+// ---------- audio: frames <-> packets, decode, WAV, Ogg Opus ----------
+const Audio_ = {
+  packets(raw) {                                          // resyncs on "[P" by dropping a byte, like the original app
+    const out = []; let p = 0;
+    while (p + FRAME <= raw.length) {
+      if (raw[p] === 0x5B && raw[p + 1] === 0x50) { out.push(raw.subarray(p + 2, p + FRAME)); p += FRAME; } else p++;
+    }
+    return out;
+  },
+  rawFromPackets(pk) {
+    const raw = new Uint8Array(pk.length * FRAME);
+    pk.forEach((p, i) => { raw[i * FRAME] = 0x5B; raw[i * FRAME + 1] = 0x50; raw.set(p, i * FRAME + 2); });
+    return raw;
+  },
+  wavSize: raw => Audio_.packets(raw).length * SAMPLES * 2 + 44,
+
+  async decode(raw) {                                     // -> Int16Array (16 kHz mono)
+    const pk = Audio_.packets(raw);
+    if (!pk.length) throw new Error('No audio frames found.');
+    if (window.AudioDecoder && window.EncodedAudioChunk) {
+      const cfg = { codec: 'opus', sampleRate: 16000, numberOfChannels: 1 };
+      if ((await AudioDecoder.isConfigSupported(cfg)).supported) return Audio_._viaWebCodecs(pk, cfg);
+    }
+    return Audio_._viaDecodeAudioData(pk);
+  },
+  async _viaWebCodecs(pk, cfg) {
+    const parts = []; let err = null;
+    const dec = new AudioDecoder({
+      output: ad => { const f = new Float32Array(ad.numberOfFrames); ad.copyTo(f, { planeIndex: 0, format: 'f32-planar' });
+        parts.push({ f, rate: ad.sampleRate }); ad.close(); },
+      error: e => { err = e; },
+    });
+    dec.configure(cfg);
+    pk.forEach((p, i) => dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: i * 20000, data: p })));
+    await dec.flush(); dec.close();
+    if (err) throw err;
+    let n = 0; for (const p of parts) n += p.f.length;
+    const all = new Float32Array(n); let o = 0; for (const p of parts) { all.set(p.f, o); o += p.f.length; }
+    return Audio_._toInt16(parts[0]?.rate === 16000 ? all : Audio_._resample(all, parts[0]?.rate || 48000, 16000));
+  },
+  async _viaDecodeAudioData(pk) {                         // fallback for browsers without WebCodecs Opus
+    const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    try {
+      const buf = await ctx.decodeAudioData(Ogg.write(pk).buffer.slice(0));
+      return Audio_._toInt16(Audio_._resample(buf.getChannelData(0), buf.sampleRate, 16000));
+    } finally { ctx.close?.(); }
+  },
+  _resample(f, from, to) {
+    if (from === to) return f;
+    const out = new Float32Array(Math.floor(f.length * to / from)), r = from / to;
+    for (let i = 0; i < out.length; i++) { const x = i * r, j = Math.floor(x), t = x - j; out[i] = f[j] * (1 - t) + (f[j + 1] ?? f[j]) * t; }
+    return out;
+  },
+  _toInt16(f) {
+    const o = new Int16Array(f.length);
+    for (let i = 0; i < f.length; i++) { const v = Math.round(f[i] * 32768); o[i] = v > 32767 ? 32767 : v < -32768 ? -32768 : v; }
+    return o;
+  },
+  wav(pcm) {                                              // 44-byte header, 16 kHz mono 16-bit
+    const b = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(b), w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+    v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, 'data'); v.setUint32(40, pcm.length * 2, true);
+    new Int16Array(b, 44).set(pcm);
+    return new Blob([b], { type: 'audio/wav' });
+  },
+};
+
+// Lossless Ogg Opus: the recorder's packets are already standard Opus, so they are wrapped as-is.
+const Ogg = (() => {
+  const T = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) { let r = i << 24; for (let k = 0; k < 8; k++) r = (r & 0x80000000) ? (r << 1) ^ 0x04C11DB7 : r << 1; T[i] = r >>> 0; }
+  const crc = b => { let c = 0; for (let i = 0; i < b.length; i++) c = ((c << 8) ^ T[((c >>> 24) ^ b[i]) & 255]) >>> 0; return c; };
+  function page(flags, granule, serial, seq, packets) {
+    const seg = []; for (const p of packets) { let n = p.length; while (n >= 255) { seg.push(255); n -= 255; } seg.push(n); }
+    const body = packets.reduce((a, p) => a + p.length, 0), out = new Uint8Array(27 + seg.length + body), v = new DataView(out.buffer);
+    out.set(toAscii('OggS')); out[5] = flags; v.setBigInt64(6, BigInt(granule), true); v.setUint32(14, serial, true); v.setUint32(18, seq, true);
+    out[26] = seg.length; out.set(seg, 27); let o = 27 + seg.length; for (const p of packets) { out.set(p, o); o += p.length; }
+    v.setUint32(22, crc(out), true); return out;
+  }
+  function write(packets, inputRate = 16000) {
+    const head = new Uint8Array(19); head.set(toAscii('OpusHead')); head[8] = 1; head[9] = 1; new DataView(head.buffer).setUint32(12, inputRate, true);
+    const vendor = toAscii('reaudio'), tags = new Uint8Array(8 + 4 + vendor.length + 4);
+    tags.set(toAscii('OpusTags')); new DataView(tags.buffer).setUint32(8, vendor.length, true); tags.set(vendor, 12);
+    const pages = [page(2, 0, 0x52454155, 0, [head]), page(0, 0, 0x52454155, 1, [tags])];
+    let g = 0, seq = 2;
+    for (let i = 0; i < packets.length; i += 50) {
+      const chunk = packets.slice(i, i + 50); g += chunk.length * 960;
+      pages.push(page(i + 50 >= packets.length ? 4 : 0, g, 0x52454155, seq++, chunk));
+    }
+    const out = new Uint8Array(pages.reduce((a, p) => a + p.length, 0)); let o = 0; for (const p of pages) { out.set(p, o); o += p.length; }
+    return out;
+  }
+  function read(b) {                                      // -> audio packets (skips OpusHead / OpusTags)
+    const packets = []; let cur = [], p = 0;
+    while (p + 27 <= b.length && b[p] === 0x4F && b[p + 1] === 0x67 && b[p + 2] === 0x67 && b[p + 3] === 0x53) {
+      const n = b[p + 26]; let body = p + 27 + n;
+      for (let s = 0; s < n; s++) {
+        const len = b[p + 27 + s]; for (let i = 0; i < len; i++) cur.push(b[body + i]); body += len;
+        if (len < 255) { const pk = Uint8Array.from(cur); cur = []; const tag = asciiOf(pk.subarray(0, 8)); if (tag !== 'OpusHead' && tag !== 'OpusTags') packets.push(pk); }
+      }
+      p = body;
+    }
+    return packets;
+  }
+  return { write, read };
+})();
+
+// ---------- local store (IndexedDB; falls back to memory if unavailable) ----------
+const Store = (() => {
+  const mem = new Map(); let dbp = null, memOnly = false;
+  const open = () => dbp ??= new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open('reaudio', 1);
+      r.onupgradeneeded = () => { r.result.createObjectStore('meta', { keyPath: 'name' }); r.result.createObjectStore('raw', { keyPath: 'name' }); };
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    } catch (e) { rej(e); }
+  });
+  const run = async (stores, mode, fn) => {
+    if (!memOnly) {
+      try {
+        const db = await open();
+        return await new Promise((res, rej) => { const t = db.transaction(stores, mode); let out; out = fn(...stores.map(s => t.objectStore(s)));
+          t.oncomplete = () => res(out?.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+      } catch (e) { memOnly = true; log('IndexedDB unavailable, keeping recordings in memory only:', e.message); }
+    }
+    return undefined;
+  };
+  return {
+    async put(name, raw) {
+      const meta = { name, wavSize: Audio_.wavSize(raw), bytes: raw.length, savedAt: Date.now() };
+      mem.set(name, { meta, raw });
+      await run(['meta', 'raw'], 'readwrite', (m, r) => { m.put(meta); return r.put({ name, raw }); });
+    },
+    async metas() {
+      if (memOnly) return [...mem.values()].map(x => x.meta);
+      const r = await run(['meta'], 'readonly', m => m.getAll());
+      return memOnly ? [...mem.values()].map(x => x.meta) : (r || []);
+    },
+    async raw(name) {
+      if (memOnly) return mem.get(name)?.raw;
+      const r = await run(['raw'], 'readonly', s => s.get(name));
+      return memOnly ? mem.get(name)?.raw : r?.raw;
+    },
+    async del(name) { mem.delete(name); await run(['meta', 'raw'], 'readwrite', (m, r) => { m.delete(name); return r.delete(name); }); },
+  };
+})();
+const Names = {
+  get m() { try { return JSON.parse(localStorage.getItem('reaudio.names') || '{}'); } catch { return {}; } },
+  set(name, t) { const m = this.m; if (t) m[name] = t; else delete m[name]; try { localStorage.setItem('reaudio.names', JSON.stringify(m)); } catch {} },
+};
+
+// ---------- app state ----------
+const S = { rec: null, device: null, info: null, files: [], local: new Map(), open: new Set(), busy: false, nowName: null,
+  recStart: 0, audioUrl: null, wake: null };
+
+function toast(msg, err = false) {
+  const t = $('#toast'); t.textContent = msg; t.classList.toggle('err', err); t.classList.add('on');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), err ? 6000 : 3000);
+}
+function setStatus(text, frac) {
+  $('#status').textContent = text || '';
+  $('#prog').classList.toggle('on', frac != null);
+  if (frac != null) $('#prog i').style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%';
+}
+async function run(label, fn) {
+  if (S.busy) return;
+  S.busy = true; document.body.classList.add('busy'); setStatus(label + '…');
+  // Keep the screen on during transfers (phones drop BLE when they sleep). Never wait on it: it may be slow or denied.
+  try { navigator.wakeLock?.request('screen').then(l => { if (S.busy) S.wake = l; else l.release(); }).catch(() => {}); } catch {}
+  try { return await fn(); }
+  catch (e) { log('ERROR', label, e.message); toast(`${label} failed: ${e.message}`, true); if (S.rec && !S.rec.connected) renderConn(); }
+  finally { S.busy = false; document.body.classList.remove('busy'); setStatus(''); try { S.wake?.release(); } catch {} S.wake = null; render(); }
+}
+
+// ---------- model: merge device files + saved copies ----------
+function entries() {
+  const names = new Set([...S.files.map(f => f.name), ...S.local.keys()]);
+  const out = [];
+  for (const name of names) {
+    const dev = S.files.find(f => f.name === name) || null, loc = S.local.get(name) || null;
+    const size = dev ? dev.size : loc.wavSize;
+    const match = !!(dev && loc && Math.abs(loc.wavSize - dev.size) <= SIZE_TOLERANCE);
+    out.push({ name, dev, loc, match, mismatch: !!(dev && loc && !match), started: startedOf(name), seconds: Math.max(0, size - 44) / 32000 });
+  }
+  return out.sort((a, b) => (b.started?.getTime() ?? 0) - (a.started?.getTime() ?? 0) || b.name.localeCompare(a.name));
+}
+const dateOf = e => e.started ? e.started.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : e.name;
+const titleOf = e => Names.m[e.name] || dateOf(e);
+
+// ---------- rendering ----------
+function renderConn() {
+  const on = !!(S.rec && S.rec.connected);
+  const pill = $('#pill');
+  pill.textContent = on ? (S.info ? `Connected · ${S.info.battery}%` : 'Connected') : 'Not connected';
+  pill.classList.toggle('on', on);
+  $('#connectCard').hidden = on; $('#deviceCard').hidden = !on;
+  if (on && S.info) $('#info').innerHTML = `<span>Serial <b>${esc(S.info.serial)}</b></span><span>Firmware <b>${esc(S.info.fw)}</b></span><span>Battery <b>${S.info.battery}%</b></span>`;
+  $('#recBanner').hidden = !(on && S.recStart);
+}
+function render() {
+  renderConn();
+  const list = $('#list'), es = entries();
+  const shareOk = canShareFiles();
+  $('#btnAllDl').hidden = !es.length; $('#btnAllShare').hidden = !es.length || !shareOk;
+  if (!es.length) { list.innerHTML = `<div class="empty">${S.rec?.connected ? 'No recordings on the recorder.' : 'Connect to the recorder to see its recordings, or import saved files.'}</div>`; return; }
+  list.innerHTML = es.map(e => {
+    const open = S.open.has(e.name), online = !!S.rec?.connected, alias = !!Names.m[e.name];
+    // Bottom status bar: saved copy matches the recorder / differs / saved but no longer on the recorder / not saved yet.
+    const [stCls, stText] = e.match ? ['ok', '✓ Saved on this device']
+      : e.mismatch ? ['warn', '⚠ The saved copy differs in size from the recorder\'s. Play will download it again.']
+      : e.loc ? ['', 'Local only: saved in this browser, not on the recorder']
+      : ['', 'On the recorder only: not saved yet'];
+    // The same card at every width. Top bar: date + time (left), buttons (right). Main row: play, file name (or your
+    // custom title), length. Bottom bar: status.
+    return `<article class="rec${S.nowName === e.name ? ' now' : ''}${open ? ' open' : ''}" data-name="${esc(e.name)}">
+      <div class="rec-main">
+        <button class="play keep" data-act="play" aria-label="Play ${esc(titleOf(e))}">▶</button>
+        <div class="meta"><div class="title ${alias ? 'alias' : 'file'}">${esc(alias ? titleOf(e) : e.name)}</div>
+          <div class="sub"><span>${fmtDur(e.seconds)}</span>${alias ? `<span>${esc(e.name)}</span>` : ''}</div></div>
+        <div class="btns">
+          <span class="barinfo"><span class="tm" title="Date and time recorded">${esc(dateOf(e))}</span></span>
+          <button class="dl keep" data-act="dl" aria-label="Download ${esc(titleOf(e))}" title="Download">⬇</button>
+          ${shareOk ? `<button class="share keep" data-act="share" aria-label="Share ${esc(titleOf(e))}" title="Share">⤴</button>` : ''}
+          <button class="more keep" data-act="toggle" aria-expanded="${open}" aria-label="More actions">⋯</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button data-act="wav">Download WAV</button>
+        <button data-act="opus">Download Opus</button>
+        <button data-act="raw">Download raw</button>
+        <button data-act="rename">Rename</button>
+        ${e.loc ? '<button data-act="forget">Remove saved copy</button>' : ''}
+        ${e.dev ? `<button class="danger" data-act="delete" ${online ? '' : 'disabled'}>Delete from recorder</button>` : ''}
+      </div>
+      <div class="statusbar ${stCls}">${esc(stText)}</div></article>`;
+  }).join('');
+}
+
+// ---------- operations ----------
+async function loadLocal() { S.local = new Map((await Store.metas()).map(m => [m.name, m])); }
+async function refreshDevice() {
+  const r = S.rec; S.info = await r.info(); renderConn();
+  S.files = await r.listFiles(); await loadLocal();
+  setStatus(`${S.files.length} recording(s) on the recorder`); log('files:', S.files.map(f => f.name).join(', '));
+}
+async function getRaw(e) {            // local copy when it matches (or is the only one); otherwise download from the recorder
+  if (e.loc && (!e.dev || e.match)) { const raw = await Store.raw(e.name); if (raw) return raw; }
+  if (!e.dev) throw new Error('No saved copy and the recorder does not have this file.');
+  if (!S.rec?.connected) throw new Error('Connect to the recorder to download this recording.');
+  if (e.mismatch) toast('Saved copy differs from the recorder\'s; downloading again');
+  const t0 = performance.now();
+  const raw = await S.rec.download(e.name, (have, exp) => setStatus(`Downloading ${titleOf(e)}: ${(have / 1024).toFixed(0)} / ${(exp / 1024).toFixed(0)} KB`, exp ? have / exp : 0));
+  log(`downloaded ${e.name}: ${raw.length} bytes in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  await Store.put(e.name, raw); await loadLocal();
+  return raw;
+}
+function setPlayer(blob, title, name) {
+  if (S.audioUrl) URL.revokeObjectURL(S.audioUrl);
+  S.audioUrl = URL.createObjectURL(blob); S.nowName = name;
+  const a = $('#audio'); a.src = S.audioUrl; $('#ptitle').textContent = title; $('#player').hidden = false;
+  a.play().catch(() => {});
+  if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title, artist: 'ReAudio' });
+}
+const play = e => run('Opening ' + titleOf(e), async () => {
+  const raw = await getRaw(e); setStatus('Decoding…');
+  const pcm = await Audio_.decode(raw); setPlayer(Audio_.wav(pcm), titleOf(e), e.name);
+});
+function save(blob, filename) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.append(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+// One export path for every format: raw stream -> file bytes.
+const FORMATS = { wav: 'audio/wav', opus: 'audio/ogg', raw: 'application/octet-stream' };
+async function exportData(raw, fmt) {                    // -> Blob
+  if (fmt === 'wav') return Audio_.wav(await Audio_.decode(raw));
+  if (fmt === 'opus') return new Blob([Ogg.write(Audio_.packets(raw))], { type: FORMATS.opus });
+  return new Blob([raw], { type: FORMATS.raw });
+}
+const saveAs = (e, fmt) => run('Preparing ' + fmt.toUpperCase(), async () => {
+  const raw = await getRaw(e);
+  save(await exportData(raw, fmt), `${e.name}.${fmt}`);
+  toast(`Downloaded ${e.name}.${fmt}`);
+});
+
+// Minimal ZIP writer (stored, no compression: WAV/Opus/raw gain little from deflate and this keeps it dependency-free).
+const Zip = (() => {
+  const T = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; T[n] = c >>> 0; }
+  const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = T[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function build(files) {                                 // files: [{ name, data: Uint8Array }]
+    const parts = [], central = []; let offset = 0;
+    const d = new Date(), time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1),
+      date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    for (const f of files) {
+      const name = new TextEncoder().encode(f.name), crc = crc32(f.data), sz = f.data.length;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(10, time, true); lh.setUint16(12, date, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, sz, true); lh.setUint32(22, sz, true); lh.setUint16(26, name.length, true);
+      parts.push(lh.buffer, name, f.data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(12, time, true); ch.setUint16(14, date, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, sz, true); ch.setUint32(24, sz, true); ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
+      central.push(ch.buffer, name);
+      offset += 30 + name.length + sz;
+    }
+    const cd = central.reduce((a, p) => a + (p.byteLength ?? p.length), 0), end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cd, true); end.setUint32(16, offset, true);
+    return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+  }
+  return { build };
+})();
+
+// ---- Web Share (files) ----
+const canShareFiles = () => {
+  try { return !!(navigator.share && navigator.canShare && navigator.canShare({ files: [new File(['x'], 'a.wav', { type: 'audio/wav' })] })); }
+  catch { return false; }
+};
+async function shareFiles(files, title) {
+  if (!navigator.canShare?.({ files })) { toast("This browser can't share that kind of file. Try WAV, or use Download.", true); return; }
+  try { await navigator.share({ files, title }); }
+  catch (e) {
+    if (e.name === 'AbortError') return;                                   // user closed the share sheet
+    // Sharing needs a fresh tap; a slow download/decode can use the allowance up. Ask for one more tap.
+    if (['NotAllowedError', 'InvalidStateError', 'SecurityError'].includes(e.name)) return readyToShare(files, title);
+    throw e;
+  }
+}
+function readyToShare(files, title) {
+  const dlg = $('#dlgShare');
+  $('#shText').textContent = files.length === 1 ? `${title} is ready.` : `${files.length} files are ready.`;
+  dlg.showModal();
+  $('#shNo').onclick = () => dlg.close();
+  $('#shYes').onclick = async () => {                                       // direct tap -> navigator.share is allowed here
+    dlg.close();
+    try { await navigator.share({ files, title }); } catch (e) { if (e.name !== 'AbortError') toast('Share failed: ' + e.message, true); }
+  };
+}
+const shareEntry = (e, fmt) => run('Preparing ' + fmt.toUpperCase(), async () => {
+  const blob = await exportData(await getRaw(e), fmt);
+  setStatus('');
+  await shareFiles([new File([blob], `${e.name}.${fmt}`, { type: FORMATS[fmt] })], titleOf(e));
+});
+
+// Prepare every recording in one format -> [{ filename, blob }] (zipped into one item when asked).
+async function collect(fmt, zip) {
+  const es = entries(), items = [], files = [], skipped = [];
+  for (let i = 0; i < es.length; i++) {
+    const e = es[i];
+    if (!(e.loc && (!e.dev || e.match)) && !S.rec?.connected) { skipped.push(e.name); continue; }   // needs the recorder, which is offline
+    setStatus(`Preparing ${i + 1} of ${es.length}: ${titleOf(e)}`, i / es.length);
+    const blob = await exportData(await getRaw(e), fmt);
+    if (zip) files.push({ name: `${e.name}.${fmt}`, data: new Uint8Array(await blob.arrayBuffer()) });
+    else items.push({ filename: `${e.name}.${fmt}`, blob });
+  }
+  if (zip && files.length) {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    items.push({ filename: `reaudio-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${fmt}.zip`, blob: Zip.build(files) });
+  }
+  return { items, skipped, count: es.length - skipped.length };
+}
+const skipNote = (n, s) => s.length ? `${n} ready; ${s.length} skipped (connect to the recorder to get them)` : `${n} recording(s) ready`;
+const downloadAll = (fmt, zip) => run('Downloading all', async () => {
+  const { items, skipped, count } = await collect(fmt, zip);
+  for (const it of items) { save(it.blob, it.filename); if (items.length > 1) await sleep(500); }
+  toast('Downloaded: ' + skipNote(count, skipped), !!skipped.length);
+});
+const shareAll = (fmt, zip) => run('Preparing to share', async () => {
+  const { items, skipped, count } = await collect(fmt, zip);
+  if (!items.length) { toast('Nothing to share.', true); return; }
+  setStatus('');
+  if (skipped.length) toast(skipNote(count, skipped), true);
+  await shareFiles(items.map(it => new File([it.blob], it.filename, { type: it.blob.type || FORMATS[fmt] })), 'ReAudio recordings');
+});
+
+// Format picker for download or share; for one recording (entry) or all of them (entry = null).
+function chooseFormat(entry, mode) {
+  const dlg = $('#dlgDl'), all = !entry, sharing = mode === 'share';
+  $('#dlTitle').textContent = (sharing ? 'Share' : 'Download') + (all ? ' all recordings' : ' recording');
+  $('#dlText').textContent = all ? 'Choose a format. Recordings that are only on the recorder will be downloaded from it first.' : `${titleOf(entry)} (${fmtDur(entry.seconds)})`;
+  $('#zipRow').hidden = !all;
+  dlg.querySelector('[data-fmt="raw"]').disabled = sharing;                 // browsers refuse to share generic binary files
+  dlg.showModal();
+  $('#dlCancel').onclick = () => dlg.close();
+  dlg.querySelectorAll('.fmts button').forEach(b => b.onclick = () => {
+    const fmt = b.dataset.fmt, zip = all && $('#dlZip').checked; dlg.close();
+    if (sharing) (all ? shareAll(fmt, zip) : shareEntry(entry, fmt)); else (all ? downloadAll(fmt, zip) : saveAs(entry, fmt));
+  });
+}
+function confirmDelete(e) {
+  $('#delText').textContent = `${titleOf(e)} (${fmtDur(e.seconds)}) will be permanently deleted from the recorder. ` +
+    (e.loc ? 'The copy saved in this browser is kept.' : 'There is NO saved copy.');
+  const dlg = $('#dlgDelete'); dlg.showModal();
+  $('#delNo').onclick = () => dlg.close();
+  $('#delYes').onclick = () => { dlg.close(); run('Deleting', async () => {
+    await S.rec.remove(e.name); await refreshDevice();
+    const still = S.files.some(f => f.name === e.name);
+    toast(still ? 'NOT deleted: the recorder still lists it' : 'Deleted from the recorder', still);
+  }); };
+}
+function rename(e) {
+  const dlg = $('#dlgRename'), inp = $('#renameInput'); inp.value = Names.m[e.name] || ''; dlg.showModal(); inp.focus();
+  const done = ok => { dlg.close(); if (ok) { Names.set(e.name, inp.value.trim()); render(); } };
+  $('#renNo').onclick = () => done(false); $('#renYes').onclick = () => done(true);
+  inp.onkeydown = ev => { if (ev.key === 'Enter') done(true); };
+}
+async function importFiles(files) {
+  for (const f of files) {
+    try {
+      const stem = f.name.replace(/\.[^.]+$/, ''), buf = new Uint8Array(await f.arrayBuffer());
+      const raw = /\.(opus|ogg)$/i.test(f.name) ? Audio_.rawFromPackets(Ogg.read(buf).filter(p => p.length === PKT)) : buf;
+      if (!Audio_.packets(raw).length) throw new Error('no recorder audio frames in this file');
+      await Store.put(stem, raw); log('imported', stem);
+    } catch (err) { toast(`${f.name}: ${err.message}`, true); }
+  }
+  await loadLocal(); render(); toast('Import finished');
+}
+
+// ---------- connect ----------
+async function connect(all) {
+  const opts = all ? { acceptAllDevices: true, optionalServices: [U.svc] } : { filters: [{ services: [U.adv] }], optionalServices: [U.svc] };
+  let device;
+  try { device = await navigator.bluetooth.requestDevice(opts); }
+  catch (e) { if (e.name !== 'NotFoundError') toast(e.message, true); return; }      // NotFoundError = user cancelled the chooser
+  await run('Connecting', async () => {
+    const r = new Recorder(device); S.rec = r; S.device = device;
+    r.onDisconnect = () => { S.info = null; S.recStart = 0; renderConn(); toast('Recorder disconnected'); };
+    await r.connect(); await refreshDevice();
+  });
+  renderConn();
+}
+function disconnect() { S.rec?.disconnect(); S.info = null; S.files = []; S.recStart = 0; render(); }
+
+// ---------- wiring ----------
+function init() {
+  const sup = $('#support');
+  if (!navigator.bluetooth) {
+    sup.hidden = false;
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    sup.innerHTML = ios ? '<b>Safari on iPhone/iPad can\'t use Web Bluetooth.</b> Open this page in a Web Bluetooth browser such as Bluefy, or use Chrome on Android or desktop.'
+      : '<b>This browser has no Web Bluetooth.</b> Use Chrome or Edge (desktop or Android). Firefox and Safari don\'t support it.' +
+        (isSecureContext ? '' : ' This page must also be served over HTTPS (or localhost).');
+    $('#btnConnect').disabled = true; $('#btnAll').hidden = true;
+  } else if (!window.AudioDecoder) {
+    sup.hidden = false; sup.classList.remove('bad'); sup.textContent = 'Using the slower fallback decoder (this browser lacks WebCodecs).';
+  }
+  $('#btnConnect').onclick = () => connect(false);
+  $('#btnAll').onclick = () => connect(true);
+  $('#btnDisconnect').onclick = disconnect;
+  $('#btnRefresh').onclick = () => run('Refreshing', refreshDevice);
+  $('#btnClock').onclick = () => run('Setting clock', async () => { await S.rec.setClock(); toast('Recorder clock set'); });
+  $('#btnStart').onclick = () => run('Starting recording', async () => {
+    await S.rec.startRec(); S.recStart = Date.now(); toast('Recording started');
+  });
+  $('#btnPause').onclick = () => run('Pause / resume', async () => { await S.rec.pauseRec(); toast('Pause toggled'); });
+  $('#btnStop').onclick = () => run('Stopping', async () => {
+    const f = await S.rec.stopRec(); S.recStart = 0; toast(`Saved on recorder: ${f.name} (${fmtDur((f.size - 44) / 32000)})`); await refreshDevice();
+  });
+  setInterval(() => { if (S.recStart) $('#recTime').textContent = fmtDur((Date.now() - S.recStart) / 1000); }, 500);
+
+  $('#list').addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-act]'); if (!b) return;
+    const name = b.closest('.rec').dataset.name, e = entries().find(x => x.name === name); if (!e) return;
+    switch (b.dataset.act) {
+      case 'play': return play(e);
+      case 'toggle': S.open.has(name) ? S.open.delete(name) : S.open.add(name); return render();
+      case 'dl': return chooseFormat(e, 'download');
+      case 'share': return chooseFormat(e, 'share');
+      case 'wav': return saveAs(e, 'wav');
+      case 'opus': return saveAs(e, 'opus');
+      case 'raw': return saveAs(e, 'raw');
+      case 'rename': return rename(e);
+      case 'delete': return confirmDelete(e);
+      case 'forget': return run('Removing', async () => { await Store.del(name); await loadLocal(); toast('Removed saved copy'); });
+    }
+  });
+  $('#btnAllDl').onclick = () => chooseFormat(null, 'download');
+  $('#btnAllShare').onclick = () => chooseFormat(null, 'share');
+  $('#imp').onchange = ev => { importFiles([...ev.target.files]); ev.target.value = ''; };
+  $('#audio').addEventListener('ended', () => { S.nowName = null; render(); });
+  loadLocal().then(render);
+  render();
+}
+init();
+</script>
+</body>
+</html>
